@@ -261,14 +261,6 @@ HITPep provides five structural quality components:
 | `Global_Geom_Score` | Global peptide geometry quality |
 | `Global_Int_Score` | Global receptor–peptide interaction quality |
 
-The residue-level output additionally contains:
-
-```text
-Res_Score
-```
-
-which combines the residue geometry and interaction components.
-
 The component scores are integrated into the final:
 
 ```text
