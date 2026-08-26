@@ -32,13 +32,17 @@ conda activate HITPep
 HITPep supports two common input formats:
 
 1. receptor and peptide structures provided separately;
-2. receptor–peptide complex structures provided as complete complexes.
+2. receptor–peptide structures provided as complete complexes.
 
-The preprocessing step constructs the hierarchical interaction graphs and generates the features required for HITPep inference.
+For standard inference, HITPep outputs the five component scores and the final HITPep Score for each candidate structure.
+
+In addition, atom- and residue-level predictions can be exported and projected back onto PDB structures for structural visualization and interpretation.
+
+---
 
 ### 1. Receptor and peptide provided separately
 
-Example:
+#### Step 1. Preprocess the input structures
 
 ```bash
 python data_pre_workflow.py \
@@ -49,7 +53,7 @@ python data_pre_workflow.py \
     --esm_model /path/to/esm2_model/
 ```
 
-Run HITPep inference:
+#### Step 2. Run HITPep inference
 
 ```bash
 python inference.py \
@@ -59,21 +63,97 @@ python inference.py \
     --save_pred_csv 1B9J_HPEPDOCK.csv
 ```
 
-Here:
+The output CSV contains the five predicted quality components and the final HITPep Score for each candidate structure.
 
-- `--decoy_protein_pdb` specifies the receptor structure;
-- `--decoy_peptide_pdb` specifies the peptide decoy structure or multi-model PDB file;
-- `--save_graph_pt` specifies the output graph file;
-- `--out_dir` stores intermediate preprocessing files;
-- `--esm_model` specifies the local ESM-2 model directory.
+---
+
+#### Export atom- and residue-level scores
+
+To obtain atom- and residue-level predictions for structural interpretation, use:
+
+```bash
+python inference.py \
+    --graph_pt example/1B9J_HPEPDOCK/graph.pt \
+    --ckpt checkpoints/best_model_hitpep.pt \
+    --batch_size 8 \
+    --save_pred_csv 1B9J_HPEPDOCK.csv \
+    --save_atom_csv 1B9J_HPEPDOCK_atom_scores.csv \
+    --save_res_csv 1B9J_HPEPDOCK_residue_scores.csv
+```
+
+This generates:
+
+```text
+1B9J_HPEPDOCK.csv
+1B9J_HPEPDOCK_atom_scores.csv
+1B9J_HPEPDOCK_residue_scores.csv
+```
+
+---
+
+#### Project atom- and residue-level scores onto PDB structures
+
+HITPep predictions can be projected back onto individual PDB structures for visualization.
+
+For example, to visualize the scores for `decoy_9`:
+
+##### Atom Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1B9J_HPEPDOCK/cache/decoys_fixed/decoy_9_reorder.pdb \
+    --atom_csv 1B9J_HPEPDOCK_atom_scores.csv \
+    --name decoy_9 \
+    --mode atom \
+    --res_score_col Atom_Score \
+    --out_prefix 1B9J_HPEPDOCK_decoy_9
+```
+
+##### Residue Geometry Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1B9J_HPEPDOCK/cache/decoys_fixed/decoy_9_reorder.pdb \
+    --res_csv 1B9J_HPEPDOCK_residue_scores.csv \
+    --name decoy_9 \
+    --mode residue \
+    --res_score_col Res_Geom_Score \
+    --out_prefix 1B9J_HPEPDOCK_decoy_9
+```
+
+##### Residue Interaction Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1B9J_HPEPDOCK/cache/decoys_fixed/decoy_9_reorder.pdb \
+    --res_csv 1B9J_HPEPDOCK_residue_scores.csv \
+    --name decoy_9 \
+    --mode residue \
+    --res_score_col Res_Int_Score \
+    --out_prefix 1B9J_HPEPDOCK_decoy_9
+```
+
+##### Combined Residue Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1B9J_HPEPDOCK/cache/decoys_fixed/decoy_9_reorder.pdb \
+    --res_csv 1B9J_HPEPDOCK_residue_scores.csv \
+    --name decoy_9 \
+    --mode residue \
+    --res_score_col Res_Score \
+    --out_prefix 1B9J_HPEPDOCK_decoy_9
+```
+
+The projected scores can subsequently be visualized using molecular visualization software such as PyMOL.
 
 ---
 
 ### 2. Receptor and peptide provided as a complex
 
-For complex structures, specify the receptor and peptide chain IDs.
+For complete receptor–peptide complexes, specify the receptor and peptide chain IDs.
 
-Example:
+#### Step 1. Preprocess the complex structures
 
 ```bash
 python data_pre_workflow.py \
@@ -85,7 +165,7 @@ python data_pre_workflow.py \
     --esm_model /path/to/esm2_model/
 ```
 
-Run HITPep inference:
+#### Step 2. Run HITPep inference
 
 ```bash
 python inference.py \
@@ -95,15 +175,109 @@ python inference.py \
     --save_pred_csv 1AWR_AFM.csv
 ```
 
-Here:
+---
 
-- `--complex_pdb` can specify a single complex or multiple structures using wildcards;
-- `--protein_chain` specifies the receptor chain;
-- `--peptide_chain` specifies the peptide chain.
+#### Export atom- and residue-level scores
 
-The output CSV contains the predicted structural quality components and the final HITPep ranking score for each candidate structure.
+```bash
+python inference.py \
+    --graph_pt example/1AWR_AFM/graph.pt \
+    --ckpt checkpoints/best_model_hitpep.pt \
+    --batch_size 8 \
+    --save_pred_csv 1AWR_AFM.csv \
+    --save_atom_csv 1AWR_AFM_atom_scores.csv \
+    --save_res_csv 1AWR_AFM_residue_scores.csv
+```
 
 ---
+
+#### Project scores onto a complex structure
+
+For example, for:
+
+```text
+unrelaxed_model_5_multimer_v2_pred_1
+```
+
+##### Atom Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1AWR_AFM/cache/fixed_complex/unrelaxed_model_5_multimer_v2_pred_1_peptide_fixed_reorder.pdb \
+    --atom_csv 1AWR_AFM_atom_scores.csv \
+    --name unrelaxed_model_5_multimer_v2_pred_1 \
+    --mode atom \
+    --res_score_col Atom_Score \
+    --out_prefix 1AWR_AFM_model_5
+```
+
+##### Residue Geometry Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1AWR_AFM/cache/fixed_complex/unrelaxed_model_5_multimer_v2_pred_1_peptide_fixed_reorder.pdb \
+    --res_csv 1AWR_AFM_residue_scores.csv \
+    --name unrelaxed_model_5_multimer_v2_pred_1 \
+    --mode residue \
+    --res_score_col Res_Geom_Score \
+    --out_prefix 1AWR_AFM_model_5
+```
+
+##### Residue Interaction Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1AWR_AFM/cache/fixed_complex/unrelaxed_model_5_multimer_v2_pred_1_peptide_fixed_reorder.pdb \
+    --res_csv 1AWR_AFM_residue_scores.csv \
+    --name unrelaxed_model_5_multimer_v2_pred_1 \
+    --mode residue \
+    --res_score_col Res_Int_Score \
+    --out_prefix 1AWR_AFM_model_5
+```
+
+##### Combined Residue Score
+
+```bash
+python project_score_to_pdb.py \
+    --pdb example/1AWR_AFM/cache/fixed_complex/unrelaxed_model_5_multimer_v2_pred_1_peptide_fixed_reorder.pdb \
+    --res_csv 1AWR_AFM_residue_scores.csv \
+    --name unrelaxed_model_5_multimer_v2_pred_1 \
+    --mode residue \
+    --res_score_col Res_Score \
+    --out_prefix 1AWR_AFM_model_5
+```
+
+---
+
+### HITPep output scores
+
+HITPep provides five structural quality components:
+
+| Score | Description |
+|---|---|
+| `Atom_Score` | Atom-level structural quality |
+| `Res_Geom_Score` | Residue-level geometric quality |
+| `Res_Int_Score` | Residue-level interaction quality |
+| `Global_Geom_Score` | Global peptide geometry quality |
+| `Global_Int_Score` | Global receptor–peptide interaction quality |
+
+The residue-level output additionally contains:
+
+```text
+Res_Score
+```
+
+which combines the residue geometry and interaction components.
+
+The component scores are integrated into the final:
+
+```text
+HITPep_Score
+```
+
+for candidate ranking.
+
+Higher HITPep scores indicate more native-like protein–peptide complex structures.
 
 ## Training HITPep on a Custom Dataset
 
@@ -128,8 +302,8 @@ Training HITPep on a custom dataset consists of four main preprocessing steps:
 
 ```bash
 python -m data.data_preprocess \
-    --csv_path data/Training_set/split_data/train.csv \
-    --work_dir data/Training_set \
+    --csv_path Training_set/split_data/train.csv \
+    --work_dir Training_set \
     --save_path systems_train.pt \
     --num_workers 8
 ```
@@ -150,7 +324,7 @@ The scale parameters used for structural quality labels are determined from the 
 ```bash
 python -m data.tau_cal \
     --systems_path systems_train.pt \
-    --csv_path data/Training_set/split_data/train.csv \
+    --csv_path Training_set/split_data/train.csv \
     --save_path tau.json \
     --percentile 75
 ```
@@ -160,7 +334,7 @@ python -m data.tau_cal \
 ```bash
 python -m data.dataset \
     --systems_path systems_train.pt \
-    --csv_path data/Training_set/split_data/train.csv \
+    --csv_path Training_set/split_data/train.csv \
     --tau_path tau.json \
     --save_path train.pt \
     --num_workers 16
@@ -174,8 +348,8 @@ Process the validation structures:
 
 ```bash
 python -m data.data_preprocess \
-    --csv_path data/Training_set/split_data/valid.csv \
-    --work_dir data/Training_set \
+    --csv_path Training_set/split_data/valid.csv \
+    --work_dir Training_set \
     --save_path systems_valid.pt \
     --num_workers 8
 ```
@@ -194,7 +368,7 @@ Construct the validation dataset using the **same `tau.json` calculated from the
 ```bash
 python -m data.dataset \
     --systems_path systems_valid.pt \
-    --csv_path data/Training_set/split_data/valid.csv \
+    --csv_path Training_set/split_data/valid.csv \
     --tau_path tau.json \
     --save_path valid.pt \
     --num_workers 16

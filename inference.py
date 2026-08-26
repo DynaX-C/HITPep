@@ -127,6 +127,21 @@ def _mean_pool_by_batch(x: torch.Tensor, batch_index: torch.Tensor) -> torch.Ten
     out = out / cnt.clamp_min(1.0)
     return out
 
+def _get_attr_or_none(obj, name):
+    """
+    Safely get optional attributes from PyG Batch/Data.
+    """
+    if hasattr(obj, name):
+        return getattr(obj, name)
+    if isinstance(obj, dict) and name in obj:
+        return obj[name]
+    return None
+
+
+def _to_cpu_list(x):
+    if torch.is_tensor(x):
+        return x.detach().cpu().tolist()
+    return list(x)
 
 def extract_graph_level_scores(
     out: Dict[str, torch.Tensor],
@@ -183,6 +198,152 @@ def extract_graph_level_scores(
 
     return score_dict
 
+def extract_atom_residue_level_scores(
+    out: Dict[str, torch.Tensor],
+    batch: Dict[str, Any],
+    batch_names: List[str],
+) -> tuple[list, list]:
+    """
+    Extract per-peptide-atom and per-peptide-residue scores.
+
+    Output:
+        atom_rows: one row per peptide atom
+        res_rows: one row per peptide residue
+    """
+
+    atom_rows = []
+    res_rows = []
+
+    # =====================================================
+    # Atom-level scores
+    # =====================================================
+    atom_graph = batch["atom_graph"]
+    atom_mask = atom_graph.is_peptide.bool()
+    atom_batch = atom_graph.batch[atom_mask]
+
+    if "atom_score_peptide" in out:
+        atom_score = _flatten_pred(out["atom_score_peptide"])
+    elif "atom_score" in out:
+        atom_score = _flatten_pred(out["atom_score"])[atom_mask]
+    else:
+        raise KeyError(f"'atom_score' not found. Available keys: {list(out.keys())}")
+
+    # atom local index in each graph
+    atom_global_idx = torch.arange(
+        atom_graph.num_nodes,
+        device=atom_score.device,
+    )[atom_mask]
+
+    if hasattr(atom_graph, "ptr"):
+        atom_ptr = atom_graph.ptr.to(atom_global_idx.device)
+        atom_local_idx = atom_global_idx - atom_ptr[atom_batch]
+    else:
+        atom_local_idx = atom_global_idx
+
+    # optional attributes
+    atom_name = _get_attr_or_none(atom_graph, "atom_name")
+    res_name_atom = _get_attr_or_none(atom_graph, "res_name")
+    resid_atom = _get_attr_or_none(atom_graph, "resid")
+
+    atom_name_list = _to_cpu_list(atom_name) if atom_name is not None else None
+    res_name_atom_list = _to_cpu_list(res_name_atom) if res_name_atom is not None else None
+    resid_atom_list = _to_cpu_list(resid_atom) if resid_atom is not None else None
+
+    atom_global_idx_cpu = atom_global_idx.detach().cpu().tolist()
+    atom_local_idx_cpu = atom_local_idx.detach().cpu().tolist()
+    atom_batch_cpu = atom_batch.detach().cpu().tolist()
+    atom_score_cpu = atom_score.detach().cpu().tolist()
+
+    for k, score in enumerate(atom_score_cpu):
+        g = int(atom_batch_cpu[k])
+        global_idx = int(atom_global_idx_cpu[k])
+
+        row = {
+            "Name": batch_names[g],
+            "Atom_Local_Index": int(atom_local_idx_cpu[k]),
+            "Atom_Global_Index_in_Batch": global_idx,
+            "Atom_Score": float(score),
+        }
+
+        if atom_name_list is not None:
+            row["Atom_Name"] = atom_name_list[global_idx]
+        if res_name_atom_list is not None:
+            row["Residue_Name"] = res_name_atom_list[global_idx]
+        if resid_atom_list is not None:
+            row["Residue_ID"] = resid_atom_list[global_idx]
+
+        atom_rows.append(row)
+
+    # =====================================================
+    # Residue-level scores
+    # =====================================================
+    res_graph = batch["res_graph"]
+    res_mask = res_graph.peptide_mask.bool()
+    res_batch = res_graph.batch[res_mask]
+
+    if "res_geom_peptide" in out:
+        res_geom = _flatten_pred(out["res_geom_peptide"])
+    elif "res_geom" in out:
+        res_geom = _flatten_pred(out["res_geom"])[res_mask]
+    else:
+        raise KeyError(f"'res_geom' not found. Available keys: {list(out.keys())}")
+
+    if "res_int_peptide" in out:
+        res_int = _flatten_pred(out["res_int_peptide"])
+    elif "res_int" in out:
+        res_int = _flatten_pred(out["res_int"])[res_mask]
+    else:
+        raise KeyError(f"'res_int' not found. Available keys: {list(out.keys())}")
+
+    res_global_idx = torch.arange(
+        res_graph.num_nodes,
+        device=res_geom.device,
+    )[res_mask]
+
+    if hasattr(res_graph, "ptr"):
+        res_ptr = res_graph.ptr.to(res_global_idx.device)
+        res_local_idx = res_global_idx - res_ptr[res_batch]
+    else:
+        res_local_idx = res_global_idx
+
+    # optional residue attributes
+    res_name = _get_attr_or_none(res_graph, "res_name")
+    resid = _get_attr_or_none(res_graph, "resid")
+
+    res_name_list = _to_cpu_list(res_name) if res_name is not None else None
+    resid_list = _to_cpu_list(resid) if resid is not None else None
+
+    res_global_idx_cpu = res_global_idx.detach().cpu().tolist()
+    res_local_idx_cpu = res_local_idx.detach().cpu().tolist()
+    res_batch_cpu = res_batch.detach().cpu().tolist()
+    res_geom_cpu = res_geom.detach().cpu().tolist()
+    res_int_cpu = res_int.detach().cpu().tolist()
+
+    for k in range(len(res_geom_cpu)):
+        g = int(res_batch_cpu[k])
+        global_idx = int(res_global_idx_cpu[k])
+
+        res_geom_score = float(res_geom_cpu[k])
+        res_int_score = float(res_int_cpu[k])
+        res_score = 0.5 * (res_geom_score + res_int_score)
+
+        row = {
+            "Name": batch_names[g],
+            "Residue_Local_Index": int(res_local_idx_cpu[k]),
+            "Residue_Global_Index_in_Batch": global_idx,
+            "Res_Geom_Score": res_geom_score,
+            "Res_Int_Score": res_int_score,
+            "Res_Score": res_score,
+        }
+
+        if res_name_list is not None:
+            row["Residue_Name"] = res_name_list[global_idx]
+        if resid_list is not None:
+            row["Residue_ID"] = resid_list[global_idx]
+
+        res_rows.append(row)
+
+    return atom_rows, res_rows
 
 def compute_final_score(row):
     return (
@@ -194,27 +355,56 @@ def compute_final_score(row):
     )
 
 @torch.no_grad()
-def run_inference(model, loader, device: torch.device):
+def run_inference(model, loader, device: torch.device, names: List[str] = None):
     model.eval()
 
     all_scores = {
         "atom_score": [],
         "res_geom": [],
         "res_int": [],
-        "glb_geom" : [],
+        "glb_geom": [],
         "glb_int": [],
     }
 
+    all_atom_rows = []
+    all_res_rows = []
+
+    sample_offset = 0
+
     pbar = tqdm(loader, desc="Inference", leave=False)
+
     for batch in pbar:
         batch = move_batch_to_device(batch, device)
+
         out = model(batch)
+
+        # graph-level scores
         score_dict = extract_graph_level_scores(out, batch)
 
         for key in all_scores:
             all_scores[key].extend(score_dict[key].detach().cpu().tolist())
 
-    return all_scores
+        # batch size
+        batch_size = len(score_dict["glb_geom"])
+
+        if names is not None:
+            batch_names = names[sample_offset: sample_offset + batch_size]
+        else:
+            batch_names = [f"sample_{sample_offset + i}" for i in range(batch_size)]
+
+        # atom/residue-level scores
+        atom_rows, res_rows = extract_atom_residue_level_scores(
+            out=out,
+            batch=batch,
+            batch_names=batch_names,
+        )
+
+        all_atom_rows.extend(atom_rows)
+        all_res_rows.extend(res_rows)
+
+        sample_offset += batch_size
+
+    return all_scores, all_atom_rows, all_res_rows
 
 
 def save_inference_results(
@@ -272,6 +462,8 @@ def main():
 
     parser.add_argument("--save_pred_csv", type=str, default=None)
     parser.add_argument("--save_pred_json", type=str, default=None)
+    parser.add_argument("--save_atom_csv", type=str, default=None)
+    parser.add_argument("--save_res_csv", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -295,7 +487,12 @@ def main():
 
     # ---------- inference ----------
     names = extract_complex_names(dataset)
-    score_dict = run_inference(model=model, loader=loader, device=device)
+    score_dict, atom_rows, res_rows = run_inference(
+        model=model,
+        loader=loader,
+        device=device,
+        names=names,
+    )
 
     for key, vals in score_dict.items():
         if len(names) != len(vals):
@@ -309,6 +506,20 @@ def main():
         save_csv=args.save_pred_csv,
         save_json=args.save_pred_json,
     )
+
+    if args.save_atom_csv is not None:
+        atom_df = pd.DataFrame(atom_rows)
+        atom_csv = Path(args.save_atom_csv)
+        atom_csv.parent.mkdir(parents=True, exist_ok=True)
+        atom_df.to_csv(atom_csv, index=False)
+        print(f"[Saved] atom-level scores -> {atom_csv}")
+
+    if args.save_res_csv is not None:
+        res_df = pd.DataFrame(res_rows)
+        res_csv = Path(args.save_res_csv)
+        res_csv.parent.mkdir(parents=True, exist_ok=True)
+        res_df.to_csv(res_csv, index=False)
+        print(f"[Saved] residue-level scores -> {res_csv}")
 
     print("[Top predictions]")
     print(df_pred.head(10).to_string(index=False))
