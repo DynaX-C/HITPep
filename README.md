@@ -157,7 +157,7 @@ For complete receptor–peptide complexes, specify the receptor and peptide chai
 
 ```bash
 python data_pre_workflow.py \
-    --complex_pdb "example/1AWR_AFM/models_AFM/unrelaxed_*.pdb" \
+    --complex_pdb example/1AWR_AFM/models_AFM/unrelaxed_*.pdb \
     --protein_chain B \
     --peptide_chain C \
     --save_graph_pt example/1AWR_AFM/graph.pt \
