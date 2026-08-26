@@ -459,5 +459,3 @@ The pretrained HITPep model used in our study is provided at:
 ```text
 checkpoints/best_model_hitpep.pt
 ```
-
----
