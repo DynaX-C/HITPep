@@ -1,7 +1,7 @@
 # HITPep
 
 HITPep is a hierarchical interaction-learning framework for protein–peptide complex quality assessment and model ranking.
-
+![Uploading image.png…]()
 Instead of representing complex quality with a single prediction target, HITPep decomposes structural quality across **atomic, residue, and global scales**. Local protein–peptide structures are encoded through complementary non-bonded, bonded, bond-angle, and dihedral interaction topologies, and the learned representations are progressively propagated from atoms to residues and the whole complex.
 
 HITPep predicts five structural quality components:
